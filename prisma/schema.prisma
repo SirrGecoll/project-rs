@@ -1,0 +1,95 @@
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model users {
+  id         Int         @id @default(autoincrement())
+  nik        String      @unique(map: "nik") @db.VarChar(16)
+  nama       String      @db.VarChar(100)
+  email      String      @unique(map: "email") @db.VarChar(100)
+  password   String      @db.VarChar(255)
+  no_hp      String      @db.VarChar(15)
+  role       users_role? @default(pasien)
+  created_at DateTime    @default(now()) @db.Timestamp(0)
+  antrian    antrian[]
+  dokter     dokter?     // Relasi jika user ini adalah seorang dokter
+}
+
+model dokter {
+  id           Int          @id @default(autoincrement())
+  user_id      Int          @unique // Hubungkan ke tabel users agar dokter bisa login
+  poli_id      Int
+  nama_dokter  String       @db.VarChar(100)
+  hari_praktik String       @db.VarChar(50)
+  jam_mulai    DateTime     @db.Time(0)
+  jam_selesai  DateTime     @db.Time(0)
+  created_at   DateTime     @default(now()) @db.Timestamp(0)
+  users        users        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  poli         poli         @relation(fields: [poli_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "dokter_ibfk_1")
+  resep_obat   resep_obat[]
+
+  @@index([poli_id], map: "poli_id")
+  @@index([user_id], map: "user_id")
+}
+
+model poli {
+  id           Int       @id @default(autoincrement())
+  nama_poli    String    @db.VarChar(50)
+  kode_prefix  String    @db.VarChar(5)
+  kuota_harian Int?      @default(30)
+  created_at   DateTime  @default(now()) @db.Timestamp(0)
+  antrian      antrian[]
+  dokter       dokter[]
+}
+
+model antrian {
+  id              Int             @id @default(autoincrement())
+  pasien_id       Int
+  poli_id         Int
+  nomor_antrian   String          @db.VarChar(10)
+  angka_urutan    Int
+  tanggal_berobat DateTime        @db.Date
+  status          antrian_status? @default(menunggu)
+  created_at      DateTime        @default(now()) @db.Timestamp(0)
+  users           users           @relation(fields: [pasien_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "antrian_ibfk_1")
+  poli            poli            @relation(fields: [poli_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "antrian_ibfk_2")
+  resep_obat      resep_obat[]
+
+  @@index([pasien_id], map: "pasien_id")
+  @@index([poli_id], map: "poli_id")
+}
+
+// Model baru untuk menyimpan catatan resep obat oleh dokter
+model resep_obat {
+  id          Int      @id @default(autoincrement())
+  antrian_id  Int
+  dokter_id   Int
+  diagnosa    String   @db.Text
+  catatan     String?  @db.Text
+  resep       String   @db.Text // Detail obat yang diresepkan
+  created_at  DateTime @default(now()) @db.Timestamp(0)
+  antrian     antrian  @relation(fields: [antrian_id], references: [id], onDelete: Cascade)
+  dokter      dokter   @relation(fields: [dokter_id], references: [id], onDelete: Cascade)
+
+  @@index([antrian_id], map: "antrian_id")
+  @@index([dokter_id], map: "dokter_id")
+}
+
+enum antrian_status {
+  menunggu
+  dipanggil
+  selesai
+  dibatalkan
+}
+
+enum users_role {
+  pasien
+  petugas
+  admin
+  dokter // Tambahkan role dokter di sini
+}
