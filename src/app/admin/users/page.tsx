@@ -75,14 +75,14 @@ export default function AdminUsersPage() {
     setSuccessMsg("");
 
     try {
-      const res = await fetch("/api/register", {
+      const res = await fetch("/api/admin/users", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(formAdd),
       });
 
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && data.success) {
         setSuccessMsg("User baru berhasil ditambahkan!");
         setAddModal(false);
         setFormAdd({ nama: "", email: "", password: "", nik: "", no_hp: "", role: "pasien" });
@@ -113,13 +113,15 @@ export default function AdminUsersPage() {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          user_id: selectedUser.id,
+          id: selectedUser.id,
           role: newRole,
         }),
       });
 
       const data = await res.json();
-      if (res.ok) {
+
+      // Cek apakah response sukses (berdasarkan res.ok atau data.success)
+      if (res.ok && (data.success !== false)) {
         setSuccessMsg("Role user berhasil diperbarui!");
         setEditModal(false);
         fetchUsers();
@@ -127,6 +129,7 @@ export default function AdminUsersPage() {
         setErrorMsg(data.message || "Gagal memperbarui role.");
       }
     } catch (err) {
+      console.error("Error catch:", err);
       setErrorMsg("Terjadi kesalahan jaringan.");
     }
   };
@@ -140,7 +143,7 @@ export default function AdminUsersPage() {
       });
 
       const data = await res.json();
-      if (res.ok) {
+      if (res.ok && data.success) {
         setSuccessMsg("User berhasil dihapus.");
         fetchUsers();
       } else {
@@ -313,6 +316,7 @@ export default function AdminUsersPage() {
                   <label className="block text-xs font-bold text-slate-700 mb-1">NIK</label>
                   <input
                     type="text"
+                    required
                     className="w-full border border-slate-300 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
                     placeholder="Nomor NIK KTP"
                     value={formAdd.nik}

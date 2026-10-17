@@ -3,7 +3,7 @@ import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
-// GET: Mengambil daftar pasien yang masuk ke dashboard dokter (status 'dipanggil' atau di poli terkait)
+// GET: Mengambil daftar pasien untuk dashboard dokter (menampilkan status aktif & selesai hari ini)
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
         poli_id: parseInt(poli_id),
         tanggal_berobat: new Date(tanggal),
         status: {
-          in: ["dipanggil", "selesai"], // Dokter bisa melihat yang sedang dipanggil maupun riwayat selesai hari ini
+          in: ["menunggu", "dipanggil", "proses", "terlewat", "selesai"], // Mencakup semua status aktif dan riwayat hari ini
         },
       },
       include: {

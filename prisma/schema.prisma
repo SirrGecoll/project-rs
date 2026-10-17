@@ -48,21 +48,23 @@ model poli {
 }
 
 model antrian {
-  id              Int             @id @default(autoincrement())
+  id              Int       @id @default(autoincrement())
   pasien_id       Int
   poli_id         Int
-  nomor_antrian   String          @db.VarChar(10)
+  nomor_antrian   String    @db.VarChar(10)
   angka_urutan    Int
-  tanggal_berobat DateTime        @db.Date
-  status          antrian_status? @default(menunggu)
-  created_at      DateTime        @default(now()) @db.Timestamp(0)
-  users           users           @relation(fields: [pasien_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "antrian_ibfk_1")
-  poli            poli            @relation(fields: [poli_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "antrian_ibfk_2")
+  tanggal_berobat DateTime  @db.Date
+  status          String?   @default("menunggu") // Diubah ke String agar fleksibel (menunggu, dipanggil, selesai, terlewat, dll)
+  waktu_dipanggil DateTime? @db.Timestamp(0)    // Untuk mencatat waktu/timer saat dipanggil dokter
+  created_at      DateTime  @default(now()) @db.Timestamp(0)
+  users           users     @relation(fields: [pasien_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "antrian_ibfk_1")
+  poli            poli      @relation(fields: [poli_id], references: [id], onDelete: Cascade, onUpdate: Restrict, map: "antrian_ibfk_2")
   resep_obat      resep_obat[]
 
   @@index([pasien_id], map: "pasien_id")
   @@index([poli_id], map: "poli_id")
 }
+
 
 // Model baru untuk menyimpan catatan resep obat oleh dokter
 model resep_obat {

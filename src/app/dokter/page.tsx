@@ -11,6 +11,7 @@ interface Antrian {
   angka_urutan: number;
   status: string;
   tanggal_berobat: string;
+  waktu_dipanggil?: string | null;
   users?: {
     id: number;
     nama: string;
@@ -38,6 +39,11 @@ export default function DashboardDokterPage() {
   const [resep, setResep] = useState("");
   const [showModal, setShowModal] = useState(false);
 
+  // State untuk Timer 3 Menit yang Akurat
+  const [activeDipanggil, setActiveDipanggil] = useState<Antrian | null>(null);
+  const [timeLeft, setTimeLeft] = useState<number>(180); // 180 detik = 3 menit
+  const [targetTime, setTargetTime] = useState<number | null>(null);
+
   useEffect(() => {
     const savedUser = localStorage.getItem("user");
     if (!savedUser) {
@@ -58,6 +64,61 @@ export default function DashboardDokterPage() {
       fetchAntrianDokter(dokterProfile.poli_id, tanggal);
     }
   }, [dokterProfile, tanggal]);
+
+  // Sinkronisasi target waktu timer berdasarkan waktu_dipanggil dari database
+  useEffect(() => {
+    const pasienDipanggil = antrianList.find((item) => item.status === "dipanggil");
+    if (pasienDipanggil) {
+      setActiveDipanggil(pasienDipanggil);
+      
+      if (pasienDipanggil.waktu_dipanggil) {
+        const waktuPanggilMs = new Date(pasienDipanggil.waktu_dipanggil).getTime();
+        const targetMs = waktuPanggilMs + 180 * 1000; // 3 menit dari waktu dipanggil
+        setTargetTime(targetMs);
+
+        const sisaDetik = Math.floor((targetMs - new Date().getTime()) / 1000);
+        setTimeLeft(sisaDetik > 0 ? sisaDetik : 0);
+      } else {
+        const targetMs = new Date().getTime() + 180 * 1000;
+        setTargetTime(targetMs);
+        setTimeLeft(30);
+      }
+    } else {
+      setActiveDipanggil(null);
+      setTargetTime(null);
+    }
+  }, [antrianList]);
+
+  // Interval Countdown Timer Real-time yang Akurat
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (activeDipanggil && targetTime) {
+      interval = setInterval(() => {
+        const sisa = Math.floor((targetTime - new Date().getTime()) / 1000);
+        if (sisa <= 0) {
+          setTimeLeft(0);
+          clearInterval(interval);
+          handleAutoTerlewat(activeDipanggil.id);
+        } else {
+          setTimeLeft(sisa);
+        }
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [activeDipanggil, targetTime]);
+
+  const handleAutoTerlewat = async (antrianId: number) => {
+    try {
+      await fetch("/api/antrian/status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ antrian_id: antrianId, status: "terlewat" }),
+      });
+      fetchAntrianDokter(dokterProfile.poli_id, tanggal);
+    } catch (err) {
+      console.error("Gagal mengubah otomatis ke terlewat", err);
+    }
+  };
 
   const fetchDokterProfile = async (userId: number) => {
     try {
@@ -86,6 +147,24 @@ export default function DashboardDokterPage() {
       console.error("Gagal mengambil antrian dokter", err);
     }
     setLoading(false);
+  };
+
+  const handleUpdateStatus = async (antrianId: number, statusBaru: string) => {
+    try {
+      const res = await fetch("/api/antrian/status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ antrian_id: antrianId, status: statusBaru }),
+      });
+
+      if (res.ok) {
+        fetchAntrianDokter(dokterProfile.poli_id, tanggal);
+      } else {
+        alert("Gagal memperbarui status antrean.");
+      }
+    } catch (err) {
+      console.error("Error update status:", err);
+    }
   };
 
   const handleOpenModal = (pasien: Antrian) => {
@@ -123,7 +202,12 @@ export default function DashboardDokterPage() {
     }
   };
 
-  // Fungsi untuk Mencetak Resep Obat
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+  };
+
   const handleCetakResep = (item: Antrian) => {
     const resepData = item.resep_obat?.[0] || {
       diagnosa: "Pemeriksaan Poliklinik",
@@ -222,6 +306,40 @@ export default function DashboardDokterPage() {
           </div>
         </div>
 
+        {activeDipanggil && (
+          <div className="bg-amber-50 border border-amber-300 p-5 rounded-2xl mb-8 flex flex-col sm:flex-row justify-between items-center gap-4 shadow-sm">
+            <div>
+              <span className="bg-amber-200 text-amber-900 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-md">
+                Sedang Dipanggil
+              </span>
+              <h3 className="text-lg font-extrabold text-amber-950 mt-1">
+                {activeDipanggil.nomor_antrian} - {activeDipanggil.users?.nama}
+              </h3>
+              <p className="text-xs text-amber-800">Harap tunggu pasien memasuki ruang pemeriksaan.</p>
+            </div>
+            <div className="flex items-center gap-4 bg-white px-5 py-3 rounded-xl border border-amber-200 shadow-inner">
+              <div className="text-right">
+                <p className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Batas Waktu</p>
+                <p className="text-2xl font-black text-amber-600 font-mono">{formatTime(timeLeft)}</p>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <button
+                  onClick={() => handleUpdateStatus(activeDipanggil.id, "proses")}
+                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shadow"
+                >
+                  🚪 Pasien Masuk (Mulai Periksa)
+                </button>
+                <button
+                  onClick={() => handleUpdateStatus(activeDipanggil.id, "terlewat")}
+                  className="bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold px-3 py-1 rounded-lg transition"
+                >
+                  ⏱️ Tandai Terlewat
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {errorMsg ? (
           <div className="bg-amber-50 border border-amber-200 text-amber-800 p-6 rounded-2xl text-center font-medium">
             ⚠️ {errorMsg} <br />
@@ -234,7 +352,7 @@ export default function DashboardDokterPage() {
                 <span>🩺</span> Daftar Pasien {dokterProfile?.poli?.nama_poli || "Poli"}
               </h2>
               <span className="text-xs font-bold bg-emerald-100 text-emerald-800 px-3 py-1 rounded-full">
-                Total Pasien: {antrianList.length}
+                Total Antrean: {antrianList.length}
               </span>
             </div>
 
@@ -242,7 +360,7 @@ export default function DashboardDokterPage() {
               <div className="text-center py-12 text-slate-500 text-sm">Memuat data pasien...</div>
             ) : antrianList.length === 0 ? (
               <div className="text-center py-12 border-2 border-dashed border-slate-200 rounded-2xl bg-slate-50">
-                <p className="text-slate-500 text-sm font-semibold">Belum ada pasien yang dipanggil ke poli ini pada tanggal tersebut.</p>
+                <p className="text-slate-500 text-sm font-semibold">Belum ada data antrean di poli ini pada tanggal tersebut.</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
@@ -264,27 +382,74 @@ export default function DashboardDokterPage() {
                         <td className="p-3.5 text-slate-500 font-mono text-xs">{item.users?.nik}</td>
                         <td className="p-3.5">
                           <span className={`text-xs px-2.5 py-1 rounded-full font-bold capitalize ${
-                            item.status === "dipanggil" ? "bg-amber-100 text-amber-800 border border-amber-300" : "bg-emerald-100 text-emerald-800"
+                            item.status === "dipanggil"
+                              ? "bg-amber-100 text-amber-800 border border-amber-300"
+                              : item.status === "proses"
+                              ? "bg-blue-100 text-blue-800 border border-blue-300"
+                              : item.status === "terlewat"
+                              ? "bg-rose-100 text-rose-800 border border-rose-300"
+                              : item.status === "selesai"
+                              ? "bg-emerald-100 text-emerald-800"
+                              : "bg-slate-100 text-slate-700"
                           }`}>
                             {item.status}
                           </span>
                         </td>
                         <td className="p-3.5 text-center">
-                          {item.status === "dipanggil" ? (
-                            <button
-                              onClick={() => handleOpenModal(item)}
-                              className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm transition"
-                            >
-                              📝 Periksa & Resep Obat
-                            </button>
-                          ) : (
-                            <button
-                              onClick={() => handleCetakResep(item)}
-                              className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition inline-flex items-center gap-1.5"
-                            >
-                              🖨️ Cetak Resep
-                            </button>
-                          )}
+                          <div className="flex items-center justify-center gap-2">
+                            {item.status === "menunggu" && (
+                              <button
+                                onClick={() => handleUpdateStatus(item.id, "dipanggil")}
+                                className="bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition"
+                              >
+                                📢 Panggil
+                              </button>
+                            )}
+
+                            {item.status === "dipanggil" && (
+                              <>
+                                <button
+                                  onClick={() => handleUpdateStatus(item.id, "proses")}
+                                  className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition"
+                                >
+                                  🚪 Masuk
+                                </button>
+                                <button
+                                  onClick={() => handleUpdateStatus(item.id, "terlewat")}
+                                  className="bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold px-2.5 py-2 rounded-xl shadow-sm transition"
+                                >
+                                  ⏱️ Terlewat
+                                </button>
+                              </>
+                            )}
+
+                            {item.status === "proses" && (
+                              <button
+                                onClick={() => handleOpenModal(item)}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2 rounded-xl shadow-sm transition animate-pulse"
+                              >
+                                📝 Input Diagnosa & Resep
+                              </button>
+                            )}
+
+                            {item.status === "selesai" && (
+                              <button
+                                onClick={() => handleCetakResep(item)}
+                                className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-bold px-3.5 py-2 rounded-xl shadow-sm transition inline-flex items-center gap-1.5"
+                              >
+                                🖨️ Cetak Resep
+                              </button>
+                            )}
+
+                            {item.status === "terlewat" && (
+                              <button
+                                onClick={() => handleUpdateStatus(item.id, "dipanggil")}
+                                className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-sm transition"
+                              >
+                                🔄 Panggil Ulang
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -310,7 +475,7 @@ export default function DashboardDokterPage() {
                   type="text"
                   required
                   className="w-full border border-slate-300 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Contoh: Pulpitis / Karies Gigi"
+                  placeholder="Contoh: Hipertensi Esensial / ISPA"
                   value={diagnosa}
                   onChange={(e) => setDiagnosa(e.target.value)}
                 />
@@ -320,7 +485,7 @@ export default function DashboardDokterPage() {
                 <label className="block text-xs font-bold text-slate-700 mb-1">Catatan / Anjuran Medis</label>
                 <textarea
                   className="w-full border border-slate-300 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500"
-                  placeholder="Contoh: Hindari makanan terlalu dingin atau panas"
+                  placeholder="Contoh: Kurangi konsumsi garam dan istirahat cukup"
                   rows={2}
                   value={catatan}
                   onChange={(e) => setCatatan(e.target.value)}
@@ -332,7 +497,7 @@ export default function DashboardDokterPage() {
                 <textarea
                   required
                   className="w-full border border-slate-300 p-2.5 rounded-xl text-sm outline-none focus:ring-2 focus:ring-emerald-500 font-mono text-xs"
-                  placeholder="1. Asam Mefenamat 500mg (3x1 sesudah makan)&#10;2. Amoxicillin 500mg (3x1 habiskan)"
+                  placeholder="1. Amlodipine 5mg (1x1 sesudah makan)&#10;2. Paracetamol 500mg (3x1 jika demam)"
                   rows={3}
                   value={resep}
                   onChange={(e) => setResep(e.target.value)}
